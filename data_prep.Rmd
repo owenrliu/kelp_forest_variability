@@ -1,0 +1,12 @@
+---
+title: "data_prep"
+author: "Owen Liu"
+date: "June 3, 2016"
+output: html_document
+---
+
+## Data Preparation for variability analysis
+The objective of this project is to investigate the variability in kelp forest community structure over time and space.
+
+This script will take the data from monitoring projects at San Nicolas Island and PISCO, and summarize their variablity for certain key species over space and time.
+
