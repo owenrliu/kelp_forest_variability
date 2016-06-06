@@ -8,5 +8,194 @@ output: html_document
 ## Data Preparation for variability analysis
 The objective of this project is to investigate the variability in kelp forest community structure over time and space.
 
-This script will take the data from monitoring projects at San Nicolas Island and PISCO, and summarize their variablity for certain key species over space and time.
+This script will take the data from monitoring projects at San Nicolas Island and PISCO, and summarize their means and variablity for certain key species over space and time.  For now, we are using benthic density data, which, for all datasets, counts organisms like algaes and invertebrates across transects.
 
+We have to split data down to the swath level, pull out the appropriate species, and then aggregate at the appropriate scales.
+
+We'll start with the data from San Nicolas island.
+
+### San Nic data
+```{r setup, echo=F,message=F}
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(tidyr)
+library(car)
+
+# a couple of convenience functions
+lunique <- function(x) length(unique(x)) # number of unique values in a variable
+datclass <- function(x) lapply(x,class) # variable classes in a dataset
+
+WD <- getwd() # working directory
+```
+
+
+```{r san nic data, message=F}
+## Import raw San Nic data
+# *************************
+sn.dat <- read.csv(file=paste0(WD,"/data/san nic/Benthic density raw data.csv"),stringsAsFactors = F)
+
+# species name/code key
+sn.spp.key <- read.csv(file=paste0(WD,"/data/san nic/Table4_Species_sampled.csv"),stringsAsFactors = F)
+# just species sampled in the benthic density swaths
+sn.spp.key <- sn.spp.key %>% filter(DataSet=="Benthic density") %>% select(-DataSet)
+
+# Break data down to the species/year level.
+for (i in unique(sn.spp.key$SpeciesCode)) {
+  
+  datname <- paste0("sn.spp.",i) # name for the output
+  
+  dat <- sn.dat %>% filter(SpeciesCode==i) %>% # subset the species, order by station and swath, and join species name to it
+    arrange(Station,Swath) %>% left_join(sn.spp.key)
+  
+  assign(datname,dat) # assign data for that species to a variable
+}
+```
+
+Variables in these data for each species are:  
+* Station: Site identifier. There are individual swaths within each station.
+* Period: Sampling period.  Each sampling period corresponds to one field excursion, but may encompass several actual dates (i.e., a sampling period may last a week)  
+* Date
+* Swath: Identified by distance along a 50m main transect, and "L" or "R" indicating whether the transect is perpendicular to the left or right of the main line.
+* SpeciesCode and SpeciesName
+* Density: Individuals per square meter.
+
+
+### PISCO Data
+PISCO has a different sampling design, and the data recorded are in counts, instead of pre-transformed to densities.  We'll calculate density by dividing individual counts in each record by 60 (because organisms are counted on 30m x 2m swaths)
+```{r pisco data,message=F}
+# read in dataset
+ps.dat <- read.csv(file=paste0(WD,"/data/pisco/pisco_subtidal.161.2.csv"),stringsAsFactors = F)
+ps.dat <- ps.dat %>% select(-notes,-observer,-depth,-campus,-method) # removing unneeded columns
+
+# site key
+ps.site.key <- read.csv(file=paste0(WD,"/data/pisco/pisco_subtidal.181.1.csv"),stringsAsFactors = F)
+ps.site.key <- ps.site.key %>% filter(method=="SBTL_SWATH")# just swath sampling
+
+# species key
+ps.spp.key <- read.csv(file=paste0(WD,"/data/pisco/pisco_subtidal.180.1.csv"),stringsAsFactors = F)
+ps.spp.key <- ps.spp.key %>% filter(sample_type=="SWATH",!(pisco_classcode=="NO_ORG"|pisco_classcode=="ASTSPP"|pisco_classcode=="CRYDEC"|pisco_classcode=="GORGAD"|pisco_classcode=="UNIDSP")) %>%
+  select(-sample_type,-sample_subtype)
+# just swath sampling and removing "non-organisms"
+
+# Break data down to the species/year level.
+for (i in unique(ps.spp.key$pisco_classcode)) {
+  
+  datname <- paste0("ps.spp.",i) # name for the output
+  
+  dat <- ps.dat %>% filter(classcode==i) %>% # subset the species, join species name to it, and add density column
+    left_join(ps.spp.key,by=c("classcode"="pisco_classcode")) %>% mutate(density=count/60)
+  
+  assign(datname,dat) # assign data for that species to a variable
+}
+```
+
+
+### Channel Islands Data
+This dataset is from the Channel Islands Kelp Forest Monitoring Program (KFMP), Kushner et al. (2013).  Again, data from the KFMP is sampled and monitored a little differently from either the San Nic or PISCO data, and monitoring methods have changed over time.  However, similar to data in the San Nic set, densities are reported for each species at each site in each year, and we can pull out species data in a similar manner:
+
+```{r KFMP data,message=F}
+# read in dataset
+ci.dat <- read.csv(file=paste0(WD,"/data/channel islands/benthdensdata.csv"),stringsAsFactors = F)
+
+# site key
+ci.site.key <- read.csv(file=paste0(WD,"/data/channel islands/sitesdata.csv"),stringsAsFactors = F)
+ci.site.key <- ci.site.key %>% select(-Video,-StartYear,-LoggerDepth__m_) # removing unneeded columns
+
+# species key
+ci.spp.key <- read.csv(file=paste0(WD,"/data/channel islands/benthsppid.csv"),stringsAsFactors = F)
+
+# Break data down to the species/year level.
+for (i in unique(ci.spp.key$species_id)) {
+  
+  datname <- paste0("ci.spp.",i) # name for the output
+  
+  dat <- ci.dat %>% filter(Species==i) %>% # subset the species, join species name to it
+    left_join(ci.spp.key,by=c("Species"="species_id"))
+  
+  assign(datname,dat) # assign data for that species to a variable
+}
+```
+
+A quick test with one species, to see if data is comparable
+
+```{red urchin gut check}
+# data from pisco
+ps.red <- select(ps.spp.STRFRAAD,density) %>%mutate(ds="PISCO",Density=density) %>% select(-density)
+
+# data from KFMP
+ci.red <- select(ci.spp.11005,DensityMean) %>% mutate(ds="KFMP",Density=DensityMean) %>% select(-DensityMean)
+
+# data from SNI
+sn.red <- select(sn.spp.29,Density) %>% mutate(ds="SNI")
+
+# bind all together for stat tests and plotting
+redtest <- bind_rows(ps.red,ci.red,sn.red)
+
+# boxplot of distributions
+ggplot(redtest,aes(x=ds,y=Density,col=ds)) + 
+  geom_boxplot()+ggtitle("Red Urchin Density Across Datasets") +
+  scale_color_discrete(name="Dataset") +xlab("") +
+  ylab("Density (ind./square m)")
+
+# Brown-Forsythe test for unequal variance
+data.frame(dataset=unique(redtest$ds),variance=c(var(ps.red$Density),var(ci.red$Density,na.rm=T),var(sn.red$Density)),
+           n=c(nrow(ps.red),nrow(filter(ci.red,!is.na(Density))),nrow(sn.red)))
+leveneTest(Density~factor(ds),data=redtest) # significantly different variance
+
+# Tukey HSD
+TukeyHSD(aov(Density~ds,data=redtest))
+```
+
+
+```{r macrocystis gut check}
+# data from pisco
+ps.mac <- select(ps.spp.MACPYRAD,density) %>%mutate(ds="PISCO",Density=density) %>% select(-density)
+
+# data from KFMP
+ci.mac <- select(ci.spp.2002,DensityMean) %>% mutate(ds="KFMP",Density=DensityMean) %>% select(-DensityMean)
+
+# data from SNI
+sn.mac <- select(sn.spp.589,Density) %>% mutate(ds="SNI")
+
+# bind all together for stat tests and plotting
+mactest <- bind_rows(ps.mac,ci.mac,sn.mac)
+
+# boxplot of distributions
+ggplot(mactest,aes(x=ds,y=Density,col=ds)) + 
+  geom_boxplot()+ggtitle("Adult Macrocystis Density Across Datasets") +
+  scale_color_discrete(name="Dataset") +xlab("") +
+  ylab("Density (ind./square m)")
+
+# Brown-Forsythe test for unequal variance
+data.frame(dataset=unique(mactest$ds),variance=c(var(ps.mac$Density,na.rm=T),var(ci.mac$Density,na.rm=T),var(sn.mac$Density,na.rm=T)),n=c(nrow(ps.mac),nrow(filter(ci.mac,!is.na(Density))),nrow(sn.mac)))
+leveneTest(Density~factor(ds),data=mactest) # significantly different variance
+
+# Tukey HSD
+TukeyHSD(aov(Density~ds,data=mactest))
+```
+
+### Determining overlapping species
+In order to compare these data at all, we need to figure out which species are overlapping
+```{r species monitored comparison}
+# mush together pisco genus and species to compare to other data
+ps.spp.key <- ps.spp.key %>% mutate(gen_spe = paste(genus,species))
+
+# only keep overlaps
+spp.key.all <- ps.spp.key %>% 
+  inner_join(ci.spp.key,by=c("gen_spe"="taxonomy")) %>% 
+  inner_join(sn.spp.key,by=c("gen_spe"="SpeciesName"))
+
+# unmatched. This way we can investigate name mismatches which may have led to falsely excluded data
+spp.key.anti <- ps.spp.key %>% 
+  full_join(ci.spp.key,by=c("gen_spe"="taxonomy")) %>% 
+  full_join(sn.spp.key,by=c("gen_spe"="SpeciesName")) %>%
+  anti_join(spp.key.all) %>% arrange(desc(gen_spe))
+
+# seems that we missed macrocystis and megastrea/lithopoma undosa, because of naming differences
+spp.key.all <- spp.key.all %>% bind_rows(filter(spp.key.anti,gen_spe==("Macrocystis pyrifera")|gen_spe==("Macrocystis pyrifera <1m")|gen_spe==("Macrocystis pyrifera >1m")|gen_spe=="Megastrea undosa"|gen_spe=="Megastrea undosum"|gen_spe=="Laminaria spp."|gen_spe=="Laminaria farlowii"))
+
+spp.key.all$gen_spe
+```
+
+Here's our final list of species common to all three datasets.
