@@ -1,0 +1,351 @@
+---
+title: "data_prep2"
+author: "Owen Liu"
+date: "June 7, 2016"
+output: html_document
+---
+
+## Data Preparation for variability analysis
+The objective of this project is to investigate the variability in kelp forest community structure over time and space.
+
+This script will take the data from monitoring projects at San Nicolas Island and PISCO, and summarize their means and variablity for certain key species over space and time.  For now, we are using benthic density data, which, for all datasets, counts organisms like algaes and invertebrates across transects.
+
+We have to split data down to the swath level, pull out the appropriate species, and then aggregate at the appropriate scales.
+
+We'll start with the data from San Nicolas island.
+
+### San Nic data
+```{r setup, echo=F,message=F}
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(tidyr)
+library(car)
+library(lubridate)
+
+# a couple of convenience functions
+lunique <- function(x) length(unique(x)) # number of unique values in a variable
+datclass <- function(x) lapply(x,class) # variable classes in a dataset
+
+WD <- getwd() # working directory
+```
+
+
+```{r san nic data, message=F}
+## Import raw San Nic data
+# *************************
+sn.dat <- read.csv(file=paste0(WD,"/data/san nic/Benthic density raw data.csv"),stringsAsFactors = F)
+# Dates and years
+sn.dat <- sn.dat %>% mutate(date=as.Date(Date,format="%m/%d/%y"),Date=NULL,year=year(date),month=month(date),day=day(date))
+
+# species name/code key
+sn.spp.key <- read.csv(file=paste0(WD,"/data/san nic/Table4_Species_sampled.csv"),stringsAsFactors = F)
+# just species sampled in the benthic density swaths
+sn.spp.key <- sn.spp.key %>% filter(DataSet=="Benthic density") %>% select(-DataSet) %>% mutate(dat="SNI")
+
+# List to store all the data (for calculating variance later)
+sn.spp.list <- list()
+
+# site key
+sn.site.key <- read.csv(file=paste0(WD,"/data/san nic/Table1_Monitoring_Stations.csv"),stringsAsFactors = F)
+
+```
+
+Variables in these data for each species are:  
+
+* Station: Site identifier. There are individual swaths within each station.
+* Period: Sampling period.  Each sampling period corresponds to one field excursion, but may encompass several actual dates (i.e., a sampling period may last a week)  
+* Date
+* Swath: Identified by distance along a 50m main transect, and "L" or "R" indicating whether the transect is perpendicular to the left or right of the main line.
+* SpeciesCode and SpeciesName
+* Density: Individuals per square meter.
+
+
+### PISCO Data
+PISCO has a different sampling design, and the data recorded are in counts, instead of pre-transformed to densities.  We'll calculate density by dividing individual counts in each record by 60 (because organisms are counted on 30m x 2m swaths)
+```{r pisco data,message=F}
+# read in dataset
+ps.dat <- read.csv(file=paste0(WD,"/data/pisco/pisco_subtidal.161.2.csv"),stringsAsFactors = F)
+# removing unneeded columns and adding density column
+ps.dat <- ps.dat %>% select(-notes,-observer,-campus,-method)%>% mutate(density=count/60)
+
+# site key
+ps.site.key <- read.csv(file=paste0(WD,"/data/pisco/pisco_subtidal.181.1.csv"),stringsAsFactors = F)
+ps.site.key <- ps.site.key %>% filter(method=="SBTL_SWATH")# just swath sampling
+
+# species key
+ps.spp.key <- read.csv(file=paste0(WD,"/data/pisco/pisco_subtidal.180.1.csv"),stringsAsFactors = F)
+ps.spp.key <- ps.spp.key %>% filter(sample_type=="SWATH",!(pisco_classcode=="NO_ORG"|pisco_classcode=="ASTSPP"|pisco_classcode=="CRYDEC"|pisco_classcode=="GORGAD"|pisco_classcode=="UNIDSP")) %>%
+  select(-sample_type,-sample_subtype) %>% mutate(dat="PISCO")
+# just swath sampling and removing "non-organisms"
+
+```
+
+
+### Channel Islands Data
+This dataset is from the Channel Islands Kelp Forest Monitoring Program (KFMP), Kushner et al. (2013).  Again, data from the KFMP is sampled and monitored a little differently from either the San Nic or PISCO data, and monitoring methods have changed over time.  However, similar to data in the San Nic set, densities are reported for each species at each site in each year, and we can pull out species data in a similar manner:
+
+```{r KFMP data,message=F}
+# read in dataset
+ci.dat <- read.csv(file=paste0(WD,"/data/channel islands/benthdensdata.csv"),stringsAsFactors = F)
+
+# Fix dates
+ci.dat <- ci.dat %>% mutate(date=as.Date(Date,format="%d-%b-%Y"),year=year(date),month=month(date),day=day(date),Date=NULL)
+
+# there is no variance for these data for each site/year combo,but we do have the number of samples, the mean, and the standard error, so we "back-calculate" the sample variance as follows:
+# var = (sqrt(n)*SE))^2, where n is the number of replicates, SE is the standard error, and therefore (sqrt(n)*SE) is the sample standard deviation.
+# WARNING: THIS IS A BIG ASSUMPTION OF EQUALITY OF SAMPLING METHODS ACROSS DATASETS
+ci.dat <- ci.dat %>% mutate(DensityVar=(sqrt(Replicates)*DensitySE)^2)
+
+# site key
+ci.site.key <- read.csv(file=paste0(WD,"/data/channel islands/sitesdata.csv"),stringsAsFactors = F)
+ci.site.key <- ci.site.key %>% select(-Video,-StartYear,-LoggerDepth__m_) # removing unneeded columns
+
+# species key
+ci.spp.key <- read.csv(file=paste0(WD,"/data/channel islands/benthsppid.csv"),stringsAsFactors = F) %>% mutate(dat="KFMP")
+
+```
+
+### Determining overlapping species
+In order to compare these data at all, we need to figure out which species are overlapping
+```{r species monitored comparison}
+# mush together pisco genus and species to compare to other data
+ps.spp.key <- ps.spp.key %>% mutate(gen_spe = paste(genus,species))
+
+# only keep overlaps
+spp.comm.all <- ps.spp.key %>% 
+  inner_join(ci.spp.key,by=c("gen_spe"="taxonomy")) %>% 
+  inner_join(sn.spp.key,by=c("gen_spe"="SpeciesName"))
+
+# unmatched. This way we can investigate name mismatches which may have led to falsely excluded data
+spp.comm.anti <- ps.spp.key %>% 
+  full_join(ci.spp.key,by=c("gen_spe"="taxonomy")) %>% 
+  full_join(sn.spp.key,by=c("gen_spe"="SpeciesName")) %>%
+  anti_join(spp.comm.all) %>% arrange(desc(gen_spe))
+
+# seems that we missed macrocystis and megastrea/lithopoma undosa, because of naming differences
+spp.comm.all <- spp.comm.all %>% bind_rows(filter(spp.comm.anti,gen_spe==("Macrocystis pyrifera")|gen_spe==("Macrocystis pyrifera <1m")|gen_spe==("Macrocystis pyrifera >1m")|gen_spe=="Megastraea undosa"|gen_spe=="Megastrea undosum"|gen_spe=="Laminaria spp."|gen_spe=="Laminaria farlowii"))
+
+spp.comm.all$gen_spe
+
+write.csv(spp.comm.all,file=paste0(WD,"/data/common_spe.csv"))
+
+# fix it into an actual key, with a common identifier for each species, and a column for its alias in each dataset. I did this in excel.  It is a clean common species description with identifiers for each dataset.
+
+spp.key.all <- read.csv(paste0(WD,"/data/common_spe2.csv"),stringsAsFactors = F)
+
+```
+
+Here's our final list of species common to all three datasets, and now we're ready to join data
+
+### Computing means and variances for each site/year
+We need to find a way to pull together the datasets for comparison.  This will require defining a "site" for each dataset and calculating mean and variance in densities for each year at each site.  The process will be a bit different for each dataset, but in order to make them comparable, we'll produce common language:
+
+* dataset: origin of data
+* spp.id : overall species identifier, common across datasets
+* species : species identifier in the native dataset
+* year
+* site - defined differently for each dataset
+* n - number of samples contributing to each calculation
+* mean.dens - mean density of that species at that site in that year, across swaths/replicates
+* se.dens - standard error in density
+* var.dens - variance in density
+
+```{r join datasets,message=F}
+# Start with KFMP data, since it already has the statistics summarized
+#************************************
+# pull out data for relevant species from the species key
+ci.dat2 <- ci.dat %>% filter(Species %in% spp.key.all$KFMP_ID,!is.na(DensityMean)) %>% 
+  
+  # create the new variables and remove the old
+  transmute(dataset="KFMP",species=Species,year=Year,site=as.character(Site),n=Replicates,
+            mean.dens=DensityMean,se.dens=DensitySE,var.dens=DensityVar)  %>%
+  
+  # join the overall species identifer
+  left_join(select(spp.key.all,ID_all,KFMP_ID),by=c("species"="KFMP_ID"))
+
+# ***********************************
+
+# San Nicolas Island data
+# ************************
+sn.dat2 <- sn.dat %>% filter(SpeciesCode %in% spp.key.all$SNI_ID) %>%
+  
+  # create the new variables
+  mutate(dataset="SNI",species=SpeciesCode,year=year,site=as.character(Station)) %>%
+  
+  # calculate n, mean, se, and var by grouping data by year/site/species and counting swaths
+  group_by(dataset,year,site,species) %>% 
+  summarise(n=n(),mean.dens=mean(Density),var.dens=var(Density),se.dens=sqrt(var.dens/n)) %>%
+  ungroup() %>%
+  arrange(species,site,year) %>%
+  
+  # join the overall species identifer
+  left_join(select(spp.key.all,ID_all,SNI_ID),by=c("species"="SNI_ID"))
+
+
+#*************************
+
+# PISCO data
+# ************************
+# For the PISCO data, we are defining a "site" as a site/area combination, within which there is normally 4-6 transects (see
+# http://www.piscoweb.org/research/science-by-discipline/ecosystem-monitoring/kelp-forest-monitoring/subtidal-sampling-protoco)
+
+ps.dat2 <- ps.dat %>% filter(classcode %in% spp.key.all$PISCO_ID) %>%
+  
+  # create the new variables
+  mutate(dataset="PISCO",species=classcode,year=year) %>%
+  unite(site,site,side) %>%
+  
+  # calculate n, mean, se, and var by grouping data by year/site/species and counting swaths. calculating mean depth here also,
+  # for later
+  group_by(dataset,year,site,species) %>% 
+  summarise(depth=mean(depth),n=n(),mean.dens=mean(density),var.dens=var(density),se.dens=sqrt(var.dens/n)) %>%
+  ungroup() %>%
+  arrange(species,site,year) %>%
+  filter(!is.na(var.dens)) %>%
+  
+  # join the overall species identifer
+  left_join(select(spp.key.all,ID_all,PISCO_ID),by=c("species"="PISCO_ID"))
+# ************************
+
+```
+
+Now, we can finally group all of the data together!
+
+```{r all data}
+dat.all <- bind_rows(select(ci.dat2,-species),select(ps.dat2,-species),select(sn.dat2,-species))
+
+# Add a unique site identifier for joining site attributes later. Sites will be identified by "DATASET_ID", where "ID" is whatever the native dataset uses to identify sites
+dat.all <- dat.all %>% unite(sitelong,dataset,site,remove=F)
+
+```
+
+### Grouping variables for the sites
+To look at variation in species densities over time across sites, we need characteristics of the sites themselves to group them.
+
+```{r site groups}
+# Similarly to the data itself, we'll join these with common identitfiers
+
+## San Nic
+# ************************
+sn.sites <- sn.site.key %>% select(-DateFirstSampled) %>%
+  rename(sitename=StationName,lat=Latitude_deg_min_N,long=Longitude_deg_min_W,meandepth=Depth_m) %>% 
+  mutate(site=as.character(Station),dataset="SNI",island="San Nicolas Island",mpatype=NA,mpaname=NA,mpayear=NA) %>%
+  unite(sitelong,dataset,site,remove=F) %>%
+  select(-Station)
+
+# have to convert lat/long to decimal degrees
+dm2dd <- function(x) sapply(x,function(y) as.numeric(strsplit(y," ")[[1]][1]) + as.numeric(strsplit(y," ")[[1]][2])/60)
+
+sn.sites <- sn.sites %>% mutate(lat=dm2dd(lat),long=dm2dd(long))
+
+## PISCO
+# ************************
+ps.sites <- ps.site.key %>% distinct(sitename) %>% filter(!is.na(lat_wgs84))
+
+# some of the sites are missing MPA info, so we'll do this in excel and re-import.
+# we also use this opportunity to create an island vector to classify which island each site is at (or Mainland)
+write.csv(ps.sites,file=paste0(WD,"/data/pisco/sites_06082016.csv"))
+ps.site.key2 <- read.csv(file=paste0(WD,"/data/pisco/sites_06082016_3.csv"),stringsAsFactors = F)
+
+# rename and remove some variables. Note: for some reason latitude and longitude are backwards in the original data
+ps.sites <- ps.site.key2 %>% 
+  mutate(dataset="PISCO",meandepth=NA) %>%
+  unite(sitelong,dataset,sitename,remove=F) %>%
+  mutate(site=sitename) %>%
+  rename(lat=lon_wgs84,long=lat_wgs84,mpatype=MPA_STATUS,mpaname=associated_mpa,mpayear=YEAR_MPA) %>%
+  select(-X,-CAMPUS,-year,-month,-day,-method,-PISCO_CODE)
+  
+  # finally, for the meandepth column, we actually have this in the data already so we don't need it at the site level. We deal with this mismatch below
+
+## KFMP
+# ************************
+kfmp.sites <- ci.site.key %>%
+  mutate(dataset="KFMP") %>%
+  unite(sitelong,dataset,Site,remove=F) %>%
+  rename(sitename=SiteName,island=IslandName,meandepth=MeanDepth__m_,lat=Latitude__Deg_N_,long=Longitude__Deg_W_) %>%
+  mutate(site=as.character(Site),mpatype=NA,mpaname=NA,mpayear=NA)
+  
+  # for the MPAs in this dataset, we have to manually match them. I made a key in Excel/GIS.
+write.csv(kfmp.sites,file=paste0(WD,"/data/channel islands/kfmp_sites_06082016.csv"))
+
+kfmp.sites <- read.csv(file=paste0(WD,"/data/channel islands/kfmp_sites_06082016_2.csv"),stringsAsFactors = F)
+kfmp.sites <- select(kfmp.sites,-MarineReserve) %>% mutate(site=as.character(site)) %>% rename(meandepth=depth)
+
+## Join the sites data
+# ************************
+sites.all <- bind_rows(kfmp.sites,ps.sites,sn.sites)
+sites.all$mpayear[sites.all$mpayear==0]<-NA ## replace MPA Year of 0 with NA (for outside MPA)
+
+```
+
+Join sites data to combined species' density data from above.
+
+```{r dat with sites}
+dat.all2 <- left_join(dat.all,sites.all,by=c("dataset","sitelong","site"))
+```
+
+Now we have the data appended to many of its site-specific attributes.  We need to do a bit of cleanup at this step and add one more variable.  The cleanup step is to remove the redundancy of the "depth" and "meandepth" variables.  Because PISCO data has the depths at each site/year combo (or most), but SNI and KFMP data have permanent sites with mean depths, we will just collapse the two depth columns into a single depth variable for each data point.
+
+Then, we will produce another potentially useful variable, a "years protected" variable.  We'll do this by subtracting the mpayear (year MPA was implemented) from the data point's year.  If the result is negative, it means that the area was not protected, yet, in that year.  A result of zero means that the MPA was implemented in that year (e.g., if the data year and mpa year are both 2007, their difference is zero).
+
+```{r cleanup}
+# Combine the pesky depth columns into one depth identifier
+# does this by mashing together the two depth columns ("depth" and "meandepth"), and then converting back to number
+dat.all3 <- unite(dat.all2,depth2,depth,meandepth,sep="")%>% 
+  mutate(depth=as.numeric(gsub("NA","",depth2))) %>%
+  select(-depth2) %>% # remove intermediate depth calculation column
+  
+  # calculate years protected
+  mutate(yrs.prot=year-mpayear)
+
+# Finally, replace negative values with NA, indicating "not protected"
+dat.all3$yrs.prot[dat.all3$yrs.prot<0] <- NA
+
+```
+
+### Adding otter presence!
+As a final dataset prep task, we need to create a variable that measures otter presence at each of these sites.  We'll do this in a similar way to the MPAs, i.e. we'll create a variable "otteryears" which measures how long otters have been present at that site (i.e., residence time).  As with the MPA "years protected" variable, the otter variable will be NA if otters have never been recorded as being RESIDENT in that place, and 0 if they have arrived in the same year as the data.
+
+The Western Ecological Research Center performs an otter census (http://www.werc.usgs.gov/ProjectSubWebPage.aspx?SubWebPageID=2&ProjectID=91) every year, and we adopted their criteria for otter species range to determine the year otters arrived at a particular survey site.  According to the USGS/Western Ecological Research Center: 
+
+> range limits defined as "the points farthest from the range center at which 5 or more otters are counted within a 10km contiguous stretch of coastline (as measured along the 10m bathymetric contour) during the two most recent spring censuses, or at which these same criteria were met in the previous year"
+
+These criteria are used to assign otter years to the PISCO data.  Sites at which otters have been present for the entirety of the census dataset are assigned 1985 (the earliest census year).
+
+For the KFMP sites, although otters have occassionally been seen in the northern Channel Islands, there is no known resident population there (yet), so these sites will all have NA.  
+
+For San Nicolas, the first otter year is 1990, when the relocation occurred, but this only applies to the sites on the western side of the island, according to the annual otter counts done at the island.  For the southern SNI sites, counts were first >= 5 in 2002, so we use that year.  With the exception of one year, otter counts at the northern SNI sites have never been >5, so those sites are assigned NA.
+
+
+
+```{r otter variable}
+# create new otteryear variable
+dat.all4 <- dat.all3 %>% mutate(otteryear=NA) %>%
+  
+  # Assign 1990 to western San Nic sites
+  mutate(otteryear=ifelse(dataset=="SNI"& site %in% c(2,3,7),1990,otteryear)) %>%
+  
+  # Assign 2002 to southern San Nic sites
+  mutate(otteryear=ifelse(dataset=="PISCO"& site %in% c(4,5,7),2002,otteryear)) %>%
+  
+  # Assign 1985 to PISCO mainland sites
+  mutate(otteryear=ifelse(dataset=="PISCO"& island=="Mainland",1985,otteryear)) %>%
+  
+  # Individual PISCO assignments
+  mutate(otteryear=ifelse(dataset=="PISCO"& site%in%c("SAL_N","SAL_S","SAL_W","SAL_FAR_WEST","SAL_CEN",
+                                                      "DUNES_CEN","VANDENBERG_UC","VANDENBURG_DC","PURISIMA_N",
+                                                      "PURISIMA_S","PURISIMA_UC","PURISIMA_DC"),1991,otteryear)) %>%
+  mutate(otteryear=ifelse(dataset=="PISCO"& site%in%c("SURF_CEN","ARGUELLO_E","ARGUELLO_W","JALAMA_N","JALAMA_S",
+                                                      "COJO_W","COJO_E","BULLITO_CEN"),1999,otteryear)) %>%
+  mutate(otteryear=ifelse(dataset=="PISCO"& site%in%c("ARROYO_QUEMADO_W","ARROYO_QUEMADO_E","NAPLES_CEN","NAPLES_E",
+                                                      "NAPLES_W","IV_REEF_W","IV_REEF_E"),2008,otteryear))
+```
+
+
+Export dataset
+
+```{r data export}
+write.csv(dat.all4,file=paste0(WD,"/data/data_complete_6_13_16.csv"),row.names = F)
+
+```

@@ -1,0 +1,15 @@
+ID_all,gen_spe,genus,species,common,PISCO_ID,KFMP_ID,SNI_ID
+EISA,Eisenia arborea,Eisenia,arborea,"Southern sea palm, all",EISARBAD,2012,574
+PTER,Pterygophora californica,Pterygophora,californica,"California sea palm, all",PTECALAD,2013,575
+HALC,Haliotis corrugata,Haliotis,corrugata,pink abalone,HALCOR,9003,81
+HALR,Haliotis rufescens,Haliotis,rufescens,red abalone,HALRUF,9002,82
+MEGC,Megathura crenulata,Megathura,crenulata,giant keyhole limpet,MEGCRE,9009,85
+PARP,Parastichopus parvimensis,Parastichopus,parvimensis,warty sea cucumber,PARPAR,11007,89
+PATM,Patiria miniata,Patiria,miniata,bat star,PATMIN,11001,24
+PISG,Pisaster giganteus,Pisaster,giganteus,giant-spined sea star,PISGIG,11002,92
+PYCH,Pycnopodia helianthoides,Pycnopodia,helianthoides,sunflower star,PYCHEL,11003,152
+STRF,Strongylocentrotus franciscanus,Strongylocentrotus,franciscanus,red sea urchin,STRFRAAD,11005,29
+STRP,Strongylocentrotus purpuratus,Strongylocentrotus,purpuratus,purple sea urchin,STRPURAD,11006,30
+MEGU,Megastraea undosa,Megastraea,undosa,wavy turban snail,MEGUND,9007,66
+MACP,Macrocystis pyrifera,Macrocystis,pyrifera,"giant kelp, adult",MACPYRAD,2002,589
+LAMI,Laminaria spp.,Laminaria,spp.,oar weed,LAMSPP,2014,556

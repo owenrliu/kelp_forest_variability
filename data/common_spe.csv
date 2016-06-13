@@ -1,0 +1,20 @@
+"","pisco_classcode","genus","species","description","dat.x","gen_spe","species_id","common","dat.y","SpeciesCode","dat"
+"1","EISARBAD","Eisenia","arborea",", adult stipe height > 30cm","PISCO","Eisenia arborea",2012,"Southern sea palm, all","KFMP",574,"SNI"
+"2","PTECALAD","Pterygophora","californica",", adult stipe height > 30cm","PISCO","Pterygophora californica",2013,"California sea palm, all","KFMP",575,"SNI"
+"3","HALCOR","Haliotis","corrugata","pink abalone,","PISCO","Haliotis corrugata",9003,"pink abalone","KFMP",81,"SNI"
+"4","HALRUF","Haliotis","rufescens","red abalone,","PISCO","Haliotis rufescens",9002,"red abalone","KFMP",82,"SNI"
+"5","MEGCRE","Megathura","crenulata","giant key-hole limpet,","PISCO","Megathura crenulata",9009,"giant keyhole limpet","KFMP",85,"SNI"
+"6","PARPAR","Parastichopus","parvimensis","warty sea-cucumber,","PISCO","Parastichopus parvimensis",11007,"warty sea cucumber","KFMP",89,"SNI"
+"7","PATMIN","Patiria","miniata","bat star,","PISCO","Patiria miniata",11001,"bat star","KFMP",24,"SNI"
+"8","PISGIG","Pisaster","giganteus","giant spined star,","PISCO","Pisaster giganteus",11002,"giant-spined sea star","KFMP",92,"SNI"
+"9","PYCHEL","Pycnopodia","helianthoides","sunflower star,","PISCO","Pycnopodia helianthoides",11003,"sunflower star","KFMP",152,"SNI"
+"10","STRFRAAD","Strongylocentrotus","franciscanus","red urchin, adult > 2.5cm","PISCO","Strongylocentrotus franciscanus",11005,"red sea urchin","KFMP",29,"SNI"
+"11","STRPURAD","Strongylocentrotus","purpuratus","purple urchin, adult > 2.5cm","PISCO","Strongylocentrotus purpuratus",11006,"purple sea urchin","KFMP",30,"SNI"
+"12","MEGUND","Megastrea","undosum","wavy turban snail,","PISCO","Megastrea undosum",NA,NA,NA,NA,NA
+"13",NA,NA,NA,NA,NA,"Megastraea undosa",9007,"wavy turban snail","KFMP",66,"SNI"
+"14",NA,NA,NA,NA,NA,"Macrocystis pyrifera >1m",NA,NA,NA,589,"SNI"
+"15",NA,NA,NA,NA,NA,"Macrocystis pyrifera <1m",NA,NA,NA,557,"SNI"
+"16","MACPYRAD","Macrocystis","pyrifera","giant kelp, adult height > 1m (also used as a placeholder in swath data when no MACPYRAD were seen","PISCO","Macrocystis pyrifera",2002.5,"giant kelp, juvenile (less than 1m in height)","KFMP",NA,NA
+"17","MACPYRAD","Macrocystis","pyrifera","giant kelp, adult height > 1m (also used as a placeholder in swath data when no MACPYRAD were seen","PISCO","Macrocystis pyrifera",2002,"giant kelp, adult (greater than 1m in height)","KFMP",NA,NA
+"18","LAMSPP","Laminaria","spp.",",","PISCO","Laminaria spp.",NA,NA,NA,556,"SNI"
+"19","LAMFAR","Laminaria","farlowii",", adult blade width > 10cm","PISCO","Laminaria farlowii",2014,"oar weed, all","KFMP",NA,NA

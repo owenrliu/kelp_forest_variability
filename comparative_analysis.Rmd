@@ -1,0 +1,33 @@
+---
+title: "comparative_analysis"
+author: "Owen Liu"
+date: "June 13, 2016"
+output: html_document
+---
+
+## Effect of MPAs and Sea Otters on Kelp Forest Benthic Communities
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+# a couple of convenience functions
+lunique <- function(x) length(unique(x)) # number of unique values in a variable
+datclass <- function(x) lapply(x,class) # variable classes in a dataset
+
+WD <- getwd() # working directory
+```
+
+Dataset import from separate data preparation file.  See that file for details on the three large ecological datasets we've brought together.
+
+```{r data import}
+dat <- read.csv(file=paste0(WD,"/data/data_complete_6_13_16.csv"),stringsAsFactors = F)
+```
+
+As a quick recap, these data are from 3 sources:
+
+* The Channel Islands Kelp Forest Monitoring Program (KFMP)
+* The San Nicolas Island/USGS Monitoring Program (SNI)
+* The Partnership for the Interdisciplinary Study of the Coastal Ocean (PISCO)
+
+The data contain information on the mean, standard error, and variance in density of 14 species of algae and invertebrates across 32 years and 259 sites, located on the Central and Southern California coast and the California Channel Islands.  Also included in the data are the level and duration of spatial protection afforded to the site (i.e., if there is an MPA).  Finally, the data have information on when California sea otters established residency at particular sites, based on a separate sea otter census dataset.  Given these data, we can explore the effects of both protection and an important top predator on kelp forest benthic community structure and dynamics.
