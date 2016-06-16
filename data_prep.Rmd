@@ -21,6 +21,7 @@ library(ggplot2)
 library(reshape2)
 library(tidyr)
 library(car)
+library(lubridate)
 
 # a couple of convenience functions
 lunique <- function(x) length(unique(x)) # number of unique values in a variable
@@ -34,11 +35,16 @@ WD <- getwd() # working directory
 ## Import raw San Nic data
 # *************************
 sn.dat <- read.csv(file=paste0(WD,"/data/san nic/Benthic density raw data.csv"),stringsAsFactors = F)
+# Dates and years
+sn.dat <- sn.dat %>% mutate(date=as.Date(Date,format="%m/%d/%y"),Date=NULL,year=year(date),month=month(date),day=day(date))
 
 # species name/code key
 sn.spp.key <- read.csv(file=paste0(WD,"/data/san nic/Table4_Species_sampled.csv"),stringsAsFactors = F)
 # just species sampled in the benthic density swaths
-sn.spp.key <- sn.spp.key %>% filter(DataSet=="Benthic density") %>% select(-DataSet)
+sn.spp.key <- sn.spp.key %>% filter(DataSet=="Benthic density") %>% select(-DataSet) %>% mutate(dat="SNI")
+
+# List to store all the data (for calculating variance later)
+sn.spp.list <- list()
 
 # Break data down to the species/year level.
 for (i in unique(sn.spp.key$SpeciesCode)) {
@@ -49,6 +55,8 @@ for (i in unique(sn.spp.key$SpeciesCode)) {
     arrange(Station,Swath) %>% left_join(sn.spp.key)
   
   assign(datname,dat) # assign data for that species to a variable
+  
+  sn.spp.list[[datname]] <- dat
 }
 ```
 
@@ -75,18 +83,23 @@ ps.site.key <- ps.site.key %>% filter(method=="SBTL_SWATH")# just swath sampling
 # species key
 ps.spp.key <- read.csv(file=paste0(WD,"/data/pisco/pisco_subtidal.180.1.csv"),stringsAsFactors = F)
 ps.spp.key <- ps.spp.key %>% filter(sample_type=="SWATH",!(pisco_classcode=="NO_ORG"|pisco_classcode=="ASTSPP"|pisco_classcode=="CRYDEC"|pisco_classcode=="GORGAD"|pisco_classcode=="UNIDSP")) %>%
-  select(-sample_type,-sample_subtype)
+  select(-sample_type,-sample_subtype) %>% mutate(dat="PISCO")
 # just swath sampling and removing "non-organisms"
+
+# List to store all the data (for calculating variance later)
+ps.spp.list <- list()
 
 # Break data down to the species/year level.
 for (i in unique(ps.spp.key$pisco_classcode)) {
   
   datname <- paste0("ps.spp.",i) # name for the output
   
-  dat <- ps.dat %>% filter(classcode==i) %>% # subset the species, join species name to it, and add density column
-    left_join(ps.spp.key,by=c("classcode"="pisco_classcode")) %>% mutate(density=count/60)
+  dat <- ps.dat %>% filter(classcode==i) %>% # subset the species, join species name to it
+    left_join(ps.spp.key,by=c("classcode"="pisco_classcode"))
   
   assign(datname,dat) # assign data for that species to a variable
+  
+  ps.spp.list[[datname]] <- dat
 }
 ```
 
@@ -98,12 +111,23 @@ This dataset is from the Channel Islands Kelp Forest Monitoring Program (KFMP), 
 # read in dataset
 ci.dat <- read.csv(file=paste0(WD,"/data/channel islands/benthdensdata.csv"),stringsAsFactors = F)
 
+# Fix dates
+ci.dat <- ci.dat %>% mutate(date=as.Date(Date,format="%d-%b-%Y"),year=year(date),month=month(date),day=day(date),Date=NULL)
+
+# there is no variance for these data for each site/year combo,but we do have the number of samples, the mean, and the standard error, so we "back-calculate" the sample variance as follows:
+# var = (sqrt(n)*SE))^2, where n is the number of replicates, SE is the standard error, and therefore (sqrt(n)*SE) is the sample standard deviation.
+# WARNING: THIS IS A BIG ASSUMPTION OF EQUALITY OF SAMPLING METHODS ACROSS DATASETS
+ci.dat <- ci.dat %>% mutate(DensityVar=(sqrt(Replicates)*DensitySE)^2)
+
 # site key
 ci.site.key <- read.csv(file=paste0(WD,"/data/channel islands/sitesdata.csv"),stringsAsFactors = F)
 ci.site.key <- ci.site.key %>% select(-Video,-StartYear,-LoggerDepth__m_) # removing unneeded columns
 
 # species key
-ci.spp.key <- read.csv(file=paste0(WD,"/data/channel islands/benthsppid.csv"),stringsAsFactors = F)
+ci.spp.key <- read.csv(file=paste0(WD,"/data/channel islands/benthsppid.csv"),stringsAsFactors = F) %>% mutate(dat="KFMP")
+
+# List to store all the data (for calculating variance later)
+ci.spp.list <- list()
 
 # Break data down to the species/year level.
 for (i in unique(ci.spp.key$species_id)) {
@@ -114,12 +138,39 @@ for (i in unique(ci.spp.key$species_id)) {
     left_join(ci.spp.key,by=c("Species"="species_id"))
   
   assign(datname,dat) # assign data for that species to a variable
+  
+  ci.spp.list[[datname]] <- dat
 }
 ```
 
+### Determining overlapping species
+In order to compare these data at all, we need to figure out which species are overlapping
+```{r species monitored comparison}
+# mush together pisco genus and species to compare to other data
+ps.spp.key <- ps.spp.key %>% mutate(gen_spe = paste(genus,species))
+
+# only keep overlaps
+spp.key.all <- ps.spp.key %>% 
+  inner_join(ci.spp.key,by=c("gen_spe"="taxonomy")) %>% 
+  inner_join(sn.spp.key,by=c("gen_spe"="SpeciesName"))
+
+# unmatched. This way we can investigate name mismatches which may have led to falsely excluded data
+spp.key.anti <- ps.spp.key %>% 
+  full_join(ci.spp.key,by=c("gen_spe"="taxonomy")) %>% 
+  full_join(sn.spp.key,by=c("gen_spe"="SpeciesName")) %>%
+  anti_join(spp.key.all) %>% arrange(desc(gen_spe))
+
+# seems that we missed macrocystis and megastrea/lithopoma undosa, because of naming differences
+spp.key.all <- spp.key.all %>% bind_rows(filter(spp.key.anti,gen_spe==("Macrocystis pyrifera")|gen_spe==("Macrocystis pyrifera <1m")|gen_spe==("Macrocystis pyrifera >1m")|gen_spe=="Megastrea undosa"|gen_spe=="Megastrea undosum"|gen_spe=="Laminaria spp."|gen_spe=="Laminaria farlowii"))
+
+spp.key.all$gen_spe
+```
+
+Here's our final list of species common to all three datasets.
+
 A quick test with one species, to see if data is comparable
 
-```{red urchin gut check}
+```{r red urchin gut check}
 # data from pisco
 ps.red <- select(ps.spp.STRFRAAD,density) %>%mutate(ds="PISCO",Density=density) %>% select(-density)
 
@@ -146,6 +197,7 @@ leveneTest(Density~factor(ds),data=redtest) # significantly different variance
 # Tukey HSD
 TukeyHSD(aov(Density~ds,data=redtest))
 ```
+
 
 
 ```{r macrocystis gut check}
@@ -175,27 +227,19 @@ leveneTest(Density~factor(ds),data=mactest) # significantly different variance
 TukeyHSD(aov(Density~ds,data=mactest))
 ```
 
-### Determining overlapping species
-In order to compare these data at all, we need to figure out which species are overlapping
-```{r species monitored comparison}
-# mush together pisco genus and species to compare to other data
-ps.spp.key <- ps.spp.key %>% mutate(gen_spe = paste(genus,species))
 
-# only keep overlaps
-spp.key.all <- ps.spp.key %>% 
-  inner_join(ci.spp.key,by=c("gen_spe"="taxonomy")) %>% 
-  inner_join(sn.spp.key,by=c("gen_spe"="SpeciesName"))
+### Computing means and variances for each site/year
+We need to find a way to pull together the datasets for comparison.  This will require defining a "site" for each dataset and calculating mean and variance in densities for each year at each site.  The process will be a bit different for each dataset, but in order to make them comparable, we'll produce common language:
+* dataset: origin of data
+* species
+* year/month/day
+* site - defined differently for each dataset
+* n - number of samples contributing to each calculation
+* mean.dens - mean density of that species at that site in that year, across swaths/replicates
+* se.dens - standard error in density
+* var.dens - variance in density
 
-# unmatched. This way we can investigate name mismatches which may have led to falsely excluded data
-spp.key.anti <- ps.spp.key %>% 
-  full_join(ci.spp.key,by=c("gen_spe"="taxonomy")) %>% 
-  full_join(sn.spp.key,by=c("gen_spe"="SpeciesName")) %>%
-  anti_join(spp.key.all) %>% arrange(desc(gen_spe))
+```{r join datasets}
 
-# seems that we missed macrocystis and megastrea/lithopoma undosa, because of naming differences
-spp.key.all <- spp.key.all %>% bind_rows(filter(spp.key.anti,gen_spe==("Macrocystis pyrifera")|gen_spe==("Macrocystis pyrifera <1m")|gen_spe==("Macrocystis pyrifera >1m")|gen_spe=="Megastrea undosa"|gen_spe=="Megastrea undosum"|gen_spe=="Laminaria spp."|gen_spe=="Laminaria farlowii"))
 
-spp.key.all$gen_spe
 ```
-
-Here's our final list of species common to all three datasets.

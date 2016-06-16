@@ -299,9 +299,6 @@ dat.all3 <- unite(dat.all2,depth2,depth,meandepth,sep="")%>%
   # calculate years protected
   mutate(yrs.prot=year-mpayear)
 
-# Finally, replace negative values with NA, indicating "not protected"
-dat.all3$yrs.prot[dat.all3$yrs.prot<0] <- NA
-
 ```
 
 ### Adding otter presence!
@@ -329,8 +326,8 @@ dat.all4 <- dat.all3 %>% mutate(otteryear=NA) %>%
   # Assign 2002 to southern San Nic sites
   mutate(otteryear=ifelse(dataset=="PISCO"& site %in% c(4,5,7),2002,otteryear)) %>%
   
-  # Assign 1985 to PISCO mainland sites
-  mutate(otteryear=ifelse(dataset=="PISCO"& island=="Mainland",1985,otteryear)) %>%
+  # Assign 1985 to PISCO mainland sites north of the first census' southern boundary
+  mutate(otteryear=ifelse(dataset=="PISCO"& island=="Mainland"& lat>34.87,1985,otteryear)) %>%
   
   # Individual PISCO assignments
   mutate(otteryear=ifelse(dataset=="PISCO"& site%in%c("SAL_N","SAL_S","SAL_W","SAL_FAR_WEST","SAL_CEN",
