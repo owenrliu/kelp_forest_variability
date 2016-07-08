@@ -19,7 +19,7 @@ library(vegan)
 lunique <- function(x) length(unique(x)) # number of unique values in a variable
 datclass <- function(x) lapply(x,class) # variable classes in a dataset
 
-WD <- getwd() # working directory
+WD <- setwd("C:/Users/oliu.MASONBEE/Documents/github/kelp_forest_variability") # working directory
 ```
 
 Dataset import from separate data preparation file.  See that file for details on the three large ecological datasets we've brought together.
@@ -42,9 +42,9 @@ The data contain information on the mean, standard error, and variance in densit
 # add a CV variable (ratio of variance to mean)
 dat <- mutate(dat,CV=sqrt(var.dens)/mean.dens)
 
-# how does mean relate to variance? log scale
-ggplot(dat,aes(x=log(mean.dens),y=log(var.dens),col=ID_all))+geom_point()+geom_smooth(method="lm")
-summary(lm(log(var.dens)~log(mean.dens),data=filter(dat,var.dens>0)))
+# how does mean relate to CV? log scale
+ggplot(dat,aes(x=log(mean.dens),y=log(CV),col=ID_all))+geom_point()+geom_smooth(method="lm")
+summary(lm(log(CV)~log(mean.dens),data=filter(dat,var.dens>0)))
 
 # MPA protection
 dat.mpa <- filter(dat,!is.na(yrs.prot)) %>% mutate(bef.aft=ifelse(yrs.prot<=0,"Before","After"))
@@ -65,6 +65,11 @@ dat.otter <- filter(dat,!is.na(otteryear)) %>%
 ggplot(filter(dat.otter,ID_all=="STRP"),aes(x=bef.aft,y=CV,fill=island)) + geom_boxplot()
 ggplot(filter(dat.otter,ID_all=="MACP"),aes(x=bef.aft,y=CV,fill=island)) + geom_boxplot()
 
+# Otter binary
+dat3 <- dat2 %>% mutate(ott.bin=ifelse(year-otteryear>0,"Yes","No"),bef.aft=ifelse(yrs.prot<=0,"Before","After"))
+ggplot(filter(dat3,ID_all=="STRP"),aes(x=bef.aft,y=log(CV),col=ott.bin))+
+  geom_boxplot()
+
 # test for difference in CV before/after
 dat.ott.strp <- filter(dat.otter,ID_all=="STRP") %>% filter(CV>0) %>% mutate(logCV=log(CV))
 t.test(dat.ott.strp$logCV[dat.ott.strp$bef.aft=="Before"],dat.ott.strp$logCV[dat.ott.strp$bef.aft=="After"])
@@ -79,7 +84,7 @@ dat2 <- filter(dat,var.dens>0)
 # amount of data for each species
 specounts <- dat2 %>% group_by(ID_all) %>% count(ID_all)
 
-taylor.coeffs <- data.frame(species=unique(dat2$ID_all),slope=NA,lower=NA,upper=NA,p=NA)
+taylor.coeffs <- data.frame(species=unique(dat2$ID_all),slope.s2=NA,lower.s2=NA,upper.s2=NA,p.s2=NA)
 for(i in taylor.coeffs$species) {
   testdat <- filter(dat2,ID_all==i)
   fit <- lm(log(CV)~log(mean.dens),data=testdat)
@@ -88,17 +93,24 @@ for(i in taylor.coeffs$species) {
   p <- summary(fit)$coefficients[,4][2]
   taylor.coeffs[taylor.coeffs$species==i,2:5] <- c(slope,CI,p)
 }
-taylor.coeffs <- taylor.coeffs %>% mutate(sig=ifelse(p<0.05,"Y","N"))
+taylor.coeffs <- taylor.coeffs %>% mutate(sig.s2=ifelse(p<0.05,"Y","N"))
 
 # Basically, these slopes:
 ggplot(dat,aes(x=log(mean.dens),y=log(CV),col=ID_all))+
   geom_point()+
   geom_smooth(method="lm")
 
-# Otter binary
-dat3 <- dat2 %>% mutate(ott.bin=ifelse(year-otteryear>0,"Yes","No"),bef.aft=ifelse(yrs.prot<=0,"Before","After"))
-ggplot(filter(dat3,ID_all=="STRP"),aes(x=bef.aft,y=log(CV),col=ott.bin))+
-  geom_boxplot()
+# factor for ordered plotting
+taylor.coeffs$species <- factor(taylor.coeffs$species, levels = taylor.coeffs$species[order(desc(taylor.coeffs$slope.s2))])
+
+taylor.all <- ggplot(taylor.coeffs,aes(x=species,y=slope.s2)) +
+  geom_pointrange(aes(ymin=lower.s2,ymax=upper.s2)) +
+  geom_hline(yintercept=0,linetype=2) +
+  ggtitle("Slope of Density-CV log-log Relationship: Within Sites") +
+  xlab("Species") + ylab("Slope of ln(Density)/ln(CV) relationship")
+taylor.all
+ggsave("taylor_all.png",width=8,height=5)
+
 
 # *****************************************
 # Variability measured across space (aggregated across time)
@@ -133,11 +145,13 @@ temporal.coeffs <- temporal.coeffs %>% mutate(sig=ifelse(p<0.05,"Y","N"))
 # change ordering of levels for plotting
 temporal.coeffs$species <- factor(temporal.coeffs$species, levels = temporal.coeffs$species[order(desc(temporal.coeffs$slope))])
 
-ggplot(temporal.coeffs,aes(x=species,y=slope)) +
+taylor.temporal <- ggplot(temporal.coeffs,aes(x=species,y=slope)) +
   geom_pointrange(aes(ymin=lower,ymax=upper)) +
   geom_hline(yintercept=0,linetype=2) +
   ggtitle("Slope of Density-CV log-log Relationship: Temporal") +
   xlab("Species") + ylab("Slope of ln(Density)/ln(CV) relationship")
+ggsave("taylor_temporal.png",width=8,height=5)
+
 
 # ******************************************
 # Variability measured across time (aggregated across space)
@@ -166,16 +180,18 @@ spatial.coeffs <- spatial.coeffs %>% mutate(sig.s=ifelse(p.s<0.05,"Y","N"))
 # change ordering of levels for plotting
 spatial.coeffs$species <- factor(spatial.coeffs$species, levels = spatial.coeffs$species[order(desc(spatial.coeffs$slope))])
 
-ggplot(spatial.coeffs,aes(x=species,y=slope.s)) +
+taylor.spatial <- ggplot(spatial.coeffs,aes(x=species,y=slope.s)) +
   geom_pointrange(aes(ymin=lower.s,ymax=upper.s)) +
   geom_hline(yintercept=0,linetype=2) +
-  ggtitle("Slope of Density-CV log-log Relationship: Spatial") +
+  ggtitle("Slope of Density-CV log-log Relationship: Spatial (Across Sites)") +
   xlab("Species") + ylab("Slope of ln(Density)/ln(CV) relationship")
+
+ggsave("taylor_spatial.png",width=8,height=5)
 
 ## putting both on the same axes
 coeffs.both <- bind_cols(temporal.coeffs,select(spatial.coeffs,-species))
 
-ggplot(coeffs.both,aes(x=slope,y=slope.s,col=species))+
+spat.temp.plot<- ggplot(coeffs.both,aes(x=slope,y=slope.s,col=species))+
   geom_pointrange(aes(ymin=lower.s,ymax=upper.s))+
   geom_errorbarh(aes(xmin=lower,xmax=upper))+
   ggtitle("Spatial and Temporal Mean-CV Relationship")+
@@ -186,8 +202,39 @@ ggplot(coeffs.both,aes(x=slope,y=slope.s,col=species))+
   geom_vline(xintercept=0,linetype=2) +
   geom_text(aes(label="Hotspots",x=-0.3,y=0.4))+
   geom_text(aes(label="Refugia",x=-0.3,y=-0.5))+
-  geom_text(aes(label="Productive Sinks",x=0.2,y=-0.5))+
-  geom_text(aes(label="Outbreaks",x=0.2,y=0.4))
+  geom_text(aes(label="Boom-Bust",x=0.2,y=-0.5))+
+  geom_text(aes(label="Outbreaks",x=0.2,y=0.4)) +
+  geom_label(aes(label=species),alpha=0.5,nudge_x=0.05,nudge_y=-0.04) +
+  guides(color="none")
+spat.temp.plot
+
+ggsave("taylor_2way.png",width=8,height=5)
+
+# Macrocystis seems unique. Check out its graphs
+ggplot(filter(dat.spatial,ID_all=="MACP"),aes(x=log(mean),y=log(CV))) + 
+  geom_point() + 
+  geom_smooth(method="lm") +
+  ggtitle("Spatial Mean-CV Relationship, Macrocystis")
+
+ggplot(filter(dat.temporal,ID_all=="MACP"),aes(x=log(mean),y=log(CV))) + 
+  geom_point() + 
+  geom_smooth(method="lm") +
+  ggtitle("Temporal Mean-CV Relationship, Macrocystis")
+
+## Same axes with temporal, spatial (within site) and spatial (across sites)
+coeffs.all <- left_join(coeffs.both,taylor.coeffs) %>% mutate(mean.slope = (slope+slope.s+slope.s2)/3)
+coeffs.all$species <- factor(coeffs.all$species, levels=coeffs.all$species[order(desc(coeffs.all$mean.slope))])
+
+ggplot(coeffs.all,aes(x=species)) +
+  geom_pointrange(aes(y=slope,ymin=lower,ymax=upper),shape=17,col="darkgreen") +
+  geom_pointrange(aes(y=slope.s,ymin=lower.s,ymax=upper.s),shape=15,col="darkblue") +
+  geom_pointrange(aes(y=slope.s2,ymin=lower.s2,ymax=upper.s2),shape=16,col="darkred") +
+  scale_shape_identity(name="",labels=c("Temporal","Spatial (Across Sites)","Spatial (Within Sites)")) +
+  geom_hline(yintercept=0,linetype=2) +
+  ggtitle("Slope of Density-CV log-log Relationship") +
+  xlab("Species") + ylab("Slope of ln(Density)/ln(CV) relationship")
+
+
 ```
 
 PCA? Within sites across years; Within years across sites
@@ -238,12 +285,68 @@ ggplot(pca.plotdat,aes(x=PC1,y=PC2,col=island,shape=factor(mainland)))+
 Treatments - where are there otters and mpas?
 
 ```{r treatments}
-treat.ott <- filter(dat3,!is.na(otteryear)) %>% group_by(sitelong,ID_all) %>% summarise(n())
-treat.mpa <- filter(dat3,!is.na(mpayear)) %>% group_by(sitelong,ID_all) %>% summarise(n())
-treat.both <- filter(dat3,!is.na(otteryear)&!is.na(mpayear)) %>% group_by(sitelong,ID_all) %>% summarise(n())
+treat.ott <- filter(dat,!is.na(otteryear)) %>% group_by(sitelong,ID_all) %>% summarise(n()) %>% left_join(select(dat,sitelong,otteryear)) %>% distinct(sitelong,ID_all)
+
+treat.mpa <- filter(dat,!is.na(mpayear)) %>% group_by(sitelong,ID_all) %>% summarise(n())%>% 
+  left_join(select(dat,sitelong,mpayear)) %>% distinct(sitelong,ID_all)
+
+treat.both <- filter(dat,!is.na(otteryear)&!is.na(mpayear)) %>% group_by(sitelong,ID_all) %>% summarise(n())%>% left_join(select(dat,sitelong,mpayear,otteryear)) %>% distinct(sitelong,ID_all)
 
 dat4<-dat3
 dat4$ott.bin[is.na(dat4$ott.bin)]<-"No"
 dat4$yrs.prot[is.na(dat4$yrs.prot)]<-0
-summary(lm(CV~mean.dens+island+yrs.prot+ott.bin+dataset+lat,data=dat4))
+```
+
+Now we can look at kelp/urchin biplots across treatments
+
+```{r urchins vs kelp}
+
+# Sum of all brown algae by site/year
+kelp.dat <- dat4 %>% filter(ID_all %in% c("MACP","PTER","EISA","LAMI")) %>% 
+  group_by(sitelong,year,island,ott.bin,yrs.prot) %>%
+  summarise(brown.dens=sum(mean.dens))
+
+# Sum of both urchin species by site/year
+urch.dat <- dat4 %>% filter(ID_all %in% c("STRF","STRP")) %>% 
+  group_by(sitelong,year,island,ott.bin,yrs.prot) %>%
+  summarise(urch.dens=sum(mean.dens))
+
+# Joined urchin and kelp data, keeping only matching records
+urch.kelp <- inner_join(kelp.dat,urch.dat) %>% mutate(prot.cat=ifelse(yrs.prot<=5,"Less than 5","More than 5"))
+
+## plot of urchin density vs. kelp density
+ggplot(urch.kelp,aes(x=urch.dens,y=brown.dens)) + 
+  geom_point(aes(col=island,shape=ott.bin)) +
+  ggtitle("Urchin Density vs. Brown Algae Density") +
+  xlab("Urchin Density (ind./ sq. m)") +
+  ylab("Brown Algae Density (ind./sq. m)")
+
+## Just places with otters
+ggplot(filter(urch.kelp,ott.bin=="Yes"),aes(x=urch.dens,y=brown.dens)) + 
+  geom_point(aes(col=island)) +
+  ggtitle("Urchin Density vs. Brown Algae Density") +
+  xlab("Urchin Density (ind./ sq. m)") +
+  ylab("Brown Algae Density (ind./sq. m)")
+
+## Places without otters
+ggplot(filter(urch.kelp,ott.bin=="No"),aes(x=urch.dens,y=brown.dens)) + 
+  geom_point(aes(col=island)) +
+  ggtitle("Urchin Density vs. Brown Algae Density") +
+  xlab("Urchin Density (ind./ sq. m)") +
+  ylab("Brown Algae Density (ind./sq. m)")
+
+## MPA protection
+ggplot(urch.kelp,aes(x=urch.dens,y=brown.dens)) + 
+  geom_point(aes(col=island,shape=prot.cat)) +
+  ggtitle("Urchin Density vs. Brown Algae Density") +
+  xlab("Urchin Density (ind./ sq. m)") +
+  ylab("Brown Algae Density (ind./sq. m)")
+
+## SD/CV urchin density with/without otters, with/without MPA
+sd(urch.kelp$urch.dens[urch.kelp$prot.cat=="More than 5"])/mean(urch.kelp$urch.dens[urch.kelp$prot.cat=="More than 5"])
+sd(urch.kelp$urch.dens[urch.kelp$prot.cat=="Less than 5"])/mean(urch.kelp$urch.dens[urch.kelp$prot.cat=="Less than 5"])
+sd(urch.kelp$urch.dens[urch.kelp$ott.bin=="Yes"])/mean(urch.kelp$urch.dens[urch.kelp$ott.bin=="Yes"])
+sd(urch.kelp$urch.dens[urch.kelp$ott.bin=="No"])/mean(urch.kelp$urch.dens[urch.kelp$ott.bin=="No"])
+
+
 ```

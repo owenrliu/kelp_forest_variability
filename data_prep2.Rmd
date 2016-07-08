@@ -324,7 +324,7 @@ dat.all4 <- dat.all3 %>% mutate(otteryear=NA) %>%
   mutate(otteryear=ifelse(dataset=="SNI"& site %in% c(2,3,7),1990,otteryear)) %>%
   
   # Assign 2002 to southern San Nic sites
-  mutate(otteryear=ifelse(dataset=="PISCO"& site %in% c(4,5,7),2002,otteryear)) %>%
+  mutate(otteryear=ifelse(dataset=="SNI"& site %in% c(4,5,7),2002,otteryear)) %>%
   
   # Assign 1985 to PISCO mainland sites north of the first census' southern boundary
   mutate(otteryear=ifelse(dataset=="PISCO"& island=="Mainland"& lat>34.87,1985,otteryear)) %>%
